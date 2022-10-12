@@ -1,3 +1,15 @@
+// Drag & Drop interfaces
+interface Draggable {
+  dragStartHandler(event: DragEvent): void;
+  dragEndHandler(event: DragEvent): void;
+}
+
+interface DragTarget {
+  dragOverHandler(event: DragEvent): void;
+  dropHandler(event: DragEvent): void;
+  dragLeaveHandler(event: DragEvent): void;
+}
+
 // Project Type
 enum ProjectStatus {
   Active = 'Active',
@@ -50,7 +62,19 @@ class ProjectState extends State<Project> {
     );
     this.projects.push(newProject);
 
-    // notify listeners
+    this.notifyListeners();
+  }
+
+  moveProject(projectId: string, newStatus: ProjectStatus) {
+    const project = this.projects.find(prj => prj.id === projectId);
+    if (project && project.status !== newStatus) {
+      project.status = newStatus;
+      this.notifyListeners();
+    }
+
+  }
+
+  private notifyListeners() {
     for (let listenerFn of this.listenerFunctions) {
       // provide a copy of projects array so it can not be modified
       listenerFn(this.projects.slice());
@@ -146,7 +170,7 @@ abstract class Component<HE extends HTMLElement, E extends HTMLElement> {
 }
 
 // ProjectItem class
-class ProjectItem extends Component<HTMLUListElement, HTMLLIElement> {
+class ProjectItem extends Component<HTMLUListElement, HTMLLIElement> implements Draggable {
   private project: Project;
 
   get persons() {
@@ -165,23 +189,36 @@ class ProjectItem extends Component<HTMLUListElement, HTMLLIElement> {
     this.renderContent();
   }
 
-  configure() {}
+  configure() {
+    this.element.addEventListener('dragstart', this.dragStartHandler);
+    this.element.addEventListener('dragend', this.dragStartHandler);
+  }
 
   renderContent() {
     this.element.querySelector('h2')!.textContent = this.project.title;
     this.element.querySelector('h3')!.textContent = this.persons + ' assigned';
     this.element.querySelector('p')!.textContent = this.project.description;
+  }
 
+  @autobind
+  dragStartHandler(event: DragEvent): void {
+    event.dataTransfer!.setData('text/plain', this.project.id);
+    event.dataTransfer!.effectAllowed = 'move';
+  }
+
+
+  dragEndHandler(_: DragEvent): void {
+      console.log('drag end')
   }
 }
 
 // ProjectList class
-class ProjectList extends Component<HTMLDivElement, HTMLElement> {
+class ProjectList extends Component<HTMLDivElement, HTMLElement> implements DragTarget {
 
   assignedProjects: Project[];
 
   constructor(private type: ProjectStatus) {
-    super('project-list', 'app', false, `${type}-projects`);
+    super('project-list', 'app', false, `${type.toLowerCase()}-projects`);
     this.templateElement = document.getElementById('project-list') as HTMLTemplateElement;
     this.hostElement = document.getElementById('app') as HTMLDivElement;
 
@@ -192,6 +229,10 @@ class ProjectList extends Component<HTMLDivElement, HTMLElement> {
   }
 
   configure() {
+    this.element.addEventListener('dragover', this.dragOverHandler);
+    this.element.addEventListener('dragleave', this.dragLeaveHandler);
+    this.element.addEventListener('drop', this.dropHandler);
+
     projectState.addListener((projects: Project[]) => {
       const relevantProjects = projects.filter(prj => prj.status === this.type);
       this.assignedProjects = relevantProjects;
@@ -213,6 +254,27 @@ class ProjectList extends Component<HTMLDivElement, HTMLElement> {
     for (const prjItem of this.assignedProjects) {
       new ProjectItem(this.element.querySelector('ul')!.id, prjItem);
     }
+  }
+
+  @autobind
+  dragOverHandler(event: DragEvent): void {
+    if (event.dataTransfer && event.dataTransfer.types[0] === 'text/plain') {
+      event.preventDefault();
+      const listEl = this.element.querySelector('ul')!;
+      listEl.classList.add('droppable');
+    }
+  }
+
+  @autobind
+  dropHandler(event: DragEvent): void {
+    const prjId = event.dataTransfer!.getData('text/plain');
+    projectState.moveProject(prjId, this.type);
+  }
+
+  @autobind
+  dragLeaveHandler(_: DragEvent): void {
+    const listEl = this.element.querySelector('ul')!;
+    listEl.classList.remove('droppable');
   }
 }
 
